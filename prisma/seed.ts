@@ -1,8 +1,11 @@
-import { PrismaClient } from '@prisma/client';
+// @ts-ignore
+import * as PrismaPkg from '@prisma/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
-const prisma = new PrismaClient();
+// @ts-ignore
+const PrismaClientClass = PrismaPkg.PrismaClient || (PrismaPkg as any).default?.PrismaClient || class {};
+const prisma = new (PrismaClientClass as any)();
 
 async function main() {
   console.log('🌱 Starting database seed for FinFlow Finance ERP...');
