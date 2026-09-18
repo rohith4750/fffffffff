@@ -5,6 +5,7 @@ import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { DashboardOverview } from './components/admin/DashboardOverview';
 import { CustomerList } from './components/customers/CustomerList';
 import { CustomerModal } from './components/customers/CustomerModal';
+import { AgentManagementView } from './components/admin/AgentManagementView';
 import { LoanManager } from './components/loans/LoanManager';
 import { NewLoanModal } from './components/loans/NewLoanModal';
 import { CollectionList } from './components/collections/CollectionList';
@@ -46,6 +47,7 @@ const MainContent: React.FC = () => {
               {activeTab === 'customers' && (
                 <CustomerList onOpenNewCustomer={() => setShowNewCustomerModal(true)} />
               )}
+              {activeTab === 'agents-management' && <AgentManagementView />}
               {activeTab === 'loans' && (
                 <LoanManager onOpenNewLoan={() => setShowNewLoanModal(true)} />
               )}

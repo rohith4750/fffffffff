@@ -40,6 +40,19 @@ interface FinanceContextType {
   allUsers: User[];
   agents: User[];
 
+  // Agent Management (Admin Controls)
+  createAgent: (data: {
+    name: string;
+    mobile: string;
+    pinCode: string;
+    assignedArea?: string;
+    targetDailyCollection?: number;
+    avatar?: string;
+  }) => User;
+  updateAgent: (id: string, updates: Partial<User>) => void;
+  resetAgentPin: (id: string, newPin: string) => void;
+  verifyAgentPin: (pin: string) => User | null;
+
   // Customers
   customers: Customer[];
   addCustomer: (customer: Omit<Customer, 'id' | 'createdAt' | 'documents'>) => Promise<Customer>;
@@ -228,6 +241,58 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCloudinaryConfigState(config);
     saveCloudinaryConfig(config);
     logAction('UPDATED_CLOUDINARY_CONFIG', 'SYSTEM', `Cloudinary Cloud Name set to: ${config.cloudName}`);
+  };
+
+  // Agent Management
+  const createAgent = (data: {
+    name: string;
+    mobile: string;
+    pinCode: string;
+    assignedArea?: string;
+    targetDailyCollection?: number;
+    avatar?: string;
+  }): User => {
+    const agentSeq = users.filter((u) => u.role === 'AGENT').length + 1;
+    const newAgent: User = {
+      id: `USR-AGT-${String(agentSeq).padStart(2, '0')}`,
+      name: data.name,
+      mobile: data.mobile,
+      pinCode: data.pinCode,
+      role: 'AGENT',
+      status: 'ACTIVE',
+      assignedArea: data.assignedArea || 'General Collection Territory',
+      targetDailyCollection: data.targetDailyCollection || 25000,
+      avatar:
+        data.avatar ||
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+    };
+
+    setUsers((prev) => [...prev, newAgent]);
+    logAction(
+      'AGENT_CREATED',
+      'AGENTS',
+      `Created new Field Agent: ${newAgent.name} (${newAgent.id}) with PIN and target ₹${newAgent.targetDailyCollection?.toLocaleString()}`
+    );
+    return newAgent;
+  };
+
+  const updateAgent = (id: string, updates: Partial<User>) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, ...updates } : u))
+    );
+    logAction('AGENT_UPDATED', 'AGENTS', `Updated agent profile for ${id}`);
+  };
+
+  const resetAgentPin = (id: string, newPin: string) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, pinCode: newPin } : u))
+    );
+    logAction('AGENT_PIN_RESET', 'AGENTS', `Reset quick login PIN for agent ID: ${id}`);
+  };
+
+  const verifyAgentPin = (pin: string): User | null => {
+    const found = users.find((u) => u.role === 'AGENT' && u.pinCode === pin && u.status === 'ACTIVE');
+    return found || null;
   };
 
   // Customers
@@ -551,6 +616,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCurrentUser,
         allUsers: users,
         agents,
+        createAgent,
+        updateAgent,
+        resetAgentPin,
+        verifyAgentPin,
         customers,
         addCustomer,
         updateCustomer,

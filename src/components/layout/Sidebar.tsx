@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard,
   Users,
+  UserCheck,
   Banknote,
   Receipt,
   MapPin,
@@ -15,6 +16,7 @@ import { useFinance } from '../../context/FinanceContext';
 export type ActiveTab =
   | 'overview'
   | 'customers'
+  | 'agents-management'
   | 'loans'
   | 'collections'
   | 'gps-map'
@@ -29,7 +31,7 @@ interface Props {
 }
 
 export const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab }) => {
-  const { currentRole, loans, customers } = useFinance();
+  const { currentRole, loans, customers, agents } = useFinance();
 
   const overdueCount = loans.filter((l) => l.status === 'OVERDUE').length;
   const pendingApprovals = loans.filter((l) => l.status === 'PENDING').length;
@@ -37,6 +39,7 @@ export const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab }) => {
   const adminNavItems = [
     { id: 'overview', label: 'Executive Dashboard', icon: LayoutDashboard },
     { id: 'customers', label: 'Customer KYC & Docs', icon: Users, badge: customers.length },
+    { id: 'agents-management', label: 'Field Agents & PINs', icon: UserCheck, badge: `${agents.length} Agents`, badgeColor: 'bg-emerald-500/20 text-emerald-400' },
     { id: 'loans', label: 'Loans & Disbursals', icon: Banknote, badge: pendingApprovals > 0 ? `${pendingApprovals} New` : undefined, badgeColor: 'bg-amber-500/20 text-amber-400' },
     { id: 'collections', label: 'Field Collections', icon: Receipt },
     { id: 'gps-map', label: 'GPS Live Tracking', icon: MapPin },
@@ -94,7 +97,7 @@ export const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab }) => {
             <span className="text-xs font-bold text-white">Agent Field Portal</span>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-            Simulate a field agent with GPS auto-capture and instant collection receipting.
+            Quick 4-digit PIN authentication, route navigation & instant thermal receipts.
           </p>
           <button
             onClick={() => setActiveTab('agent-field')}

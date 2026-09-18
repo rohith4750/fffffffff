@@ -1,13 +1,17 @@
 export type UserRole = 'ADMIN' | 'AGENT';
+export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 
 export interface User {
   id: string;
   name: string;
   mobile: string;
+  pinCode: string; // 4-digit quick agent PIN
   role: UserRole;
   avatar?: string;
-  status: 'ACTIVE' | 'INACTIVE';
+  status: UserStatus;
+  assignedArea?: string;
   targetDailyCollection?: number;
+  deviceToken?: string;
 }
 
 export type CustomerStatus = 'NEW' | 'ACTIVE' | 'BLOCKED' | 'CLOSED';

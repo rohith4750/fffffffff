@@ -7,9 +7,11 @@ import {
   Receipt,
   Download,
   UploadCloud,
-  Clock,
   Sparkles,
   X,
+  Lock,
+  Navigation,
+  List,
 } from 'lucide-react';
 import { getCurrentGpsLocation } from '../../services/geolocationService';
 import { uploadToCloudinary } from '../../services/cloudinaryService';
@@ -17,6 +19,7 @@ import { calculatePaymentDistribution } from '../../services/financeEngine';
 import { generateCollectionReceiptPDF } from '../../services/receiptGenerator';
 import confetti from 'canvas-confetti';
 import { Customer, Loan, PaymentMethod } from '../../types';
+import { AgentPinLogin } from './AgentPinLogin';
 
 export const AgentMobileView: React.FC = () => {
   const {
@@ -27,6 +30,9 @@ export const AgentMobileView: React.FC = () => {
     recordCollection,
     cloudinaryConfig,
   } = useFinance();
+
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'QUEUE' | 'ROUTE_MAP'>('QUEUE');
 
   // Assigned customers and active loans for current agent
   const assignedCustomers = customers.filter(
@@ -59,10 +65,13 @@ export const AgentMobileView: React.FC = () => {
   // Receipt popup state after collection
   const [recentReceipt, setRecentReceipt] = useState<any | null>(null);
 
+  if (!isUnlocked) {
+    return <AgentPinLogin onSuccess={() => setIsUnlocked(true)} />;
+  }
+
   const handleOpenCollectModal = (customer: Customer, loan: Loan) => {
     setSelectedCustomer(customer);
     setSelectedLoan(loan);
-    // Suggest default installment
     const installmentDue = Math.round(
       loan.principalAmount / loan.tenureCount + loan.principalAmount * (loan.interestRate / 100)
     );
@@ -86,10 +95,8 @@ export const AgentMobileView: React.FC = () => {
 
     setIsCollecting(true);
     try {
-      // 1. Auto capture GPS coordinates
       const gps = await getCurrentGpsLocation();
 
-      // 2. Record collection with distribution
       const savedCollection = await recordCollection({
         loanId: selectedLoan.id,
         amount: collectAmount,
@@ -103,7 +110,6 @@ export const AgentMobileView: React.FC = () => {
         proofImageUrl,
       });
 
-      // 3. Trigger victory confetti
       confetti({
         particleCount: 80,
         spread: 70,
@@ -111,7 +117,6 @@ export const AgentMobileView: React.FC = () => {
         colors: ['#10b981', '#14b8a6', '#06b6d4'],
       });
 
-      // 4. Open instant digital receipt
       setRecentReceipt({
         collection: savedCollection,
         customer: selectedCustomer,
@@ -119,7 +124,6 @@ export const AgentMobileView: React.FC = () => {
         agent: currentUser,
       });
 
-      // Close modal
       setSelectedCustomer(null);
       setSelectedLoan(null);
     } catch (err) {
@@ -131,7 +135,7 @@ export const AgentMobileView: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5 pb-16">
-      {/* Agent Header Profile Card */}
+      {/* Agent Header Profile Card with Lock button */}
       <div className="glass-card rounded-3xl p-5 border-emerald-500/20 shadow-xl relative overflow-hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -146,25 +150,30 @@ export const AgentMobileView: React.FC = () => {
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
               </div>
               <div className="text-xs text-slate-400 flex items-center gap-2">
-                <span>Agent ID: <strong className="text-slate-200">{currentUser.id}</strong></span>
+                <span>{currentUser.assignedArea || 'Field Territory'}</span>
                 <span>•</span>
-                <span className="text-emerald-400 font-semibold">GPS Active</span>
+                <span className="text-emerald-400 font-semibold">PIN: {currentUser.pinCode}</span>
               </div>
             </div>
           </div>
-          <div className="text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Today's Total</span>
-            <span className="text-xl font-black text-emerald-400">
-              ₹{todayCollectedSum.toLocaleString('en-IN')}
-            </span>
-          </div>
+
+          <button
+            onClick={() => setIsUnlocked(false)}
+            title="Lock Mobile Agent App"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition"
+          >
+            <Lock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Lock</span>
+          </button>
         </div>
 
         {/* Target Progress Bar */}
         <div className="mt-4 pt-3 border-t border-slate-800">
           <div className="flex justify-between text-xs font-semibold mb-1.5">
             <span className="text-slate-300">Daily Target Completion</span>
-            <span className="text-emerald-400">{progressPercent}% (₹{todayCollectedSum.toLocaleString()} / ₹{target.toLocaleString()})</span>
+            <span className="text-emerald-400">
+              {progressPercent}% (₹{todayCollectedSum.toLocaleString()} / ₹{target.toLocaleString()})
+            </span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
             <div
@@ -175,111 +184,174 @@ export const AgentMobileView: React.FC = () => {
         </div>
       </div>
 
-      {/* Due Customer List Header */}
+      {/* View Switcher Pill (Queue vs Route Navigation) */}
       <div className="flex items-center justify-between px-1">
-        <div>
-          <h3 className="font-bold text-sm text-white flex items-center gap-2">
-            <Clock className="w-4 h-4 text-emerald-400" />
-            Assigned Collection Queue ({activeAssignedLoans.length})
-          </h3>
-          <p className="text-[11px] text-slate-400">
-            Field route with one-tap payment collection & GPS verification
-          </p>
+        <div className="flex items-center gap-2 bg-slate-800/80 p-1 rounded-2xl border border-slate-700">
+          <button
+            onClick={() => setMobileTab('QUEUE')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              mobileTab === 'QUEUE'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <List className="w-3.5 h-3.5" />
+            <span>Collection Queue ({activeAssignedLoans.length})</span>
+          </button>
+          <button
+            onClick={() => setMobileTab('ROUTE_MAP')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              mobileTab === 'ROUTE_MAP'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Navigation className="w-3.5 h-3.5" />
+            <span>Turn-by-Turn Route</span>
+          </button>
         </div>
       </div>
 
-      {/* Assigned Customers Cards */}
-      <div className="space-y-3">
-        {activeAssignedLoans.length === 0 ? (
-          <div className="glass-card rounded-2xl p-8 text-center text-slate-400 text-xs">
-            No pending collections assigned to you today.
+      {/* ROUTE MAP NAVIGATION TAB */}
+      {mobileTab === 'ROUTE_MAP' && (
+        <div className="glass-card rounded-3xl p-5 border border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <Navigation className="w-4 h-4" /> Optimized Field Collection Stops
+            </h4>
+            <span className="text-[11px] text-slate-400">{activeAssignedLoans.length} visits scheduled</span>
           </div>
-        ) : (
-          activeAssignedLoans.map((loan) => {
-            const customer = assignedCustomers.find((c) => c.id === loan.customerId);
-            if (!customer) return null;
 
-            const isOverdue = loan.status === 'OVERDUE';
-            const installmentAmount = Math.round(
-              loan.principalAmount / loan.tenureCount +
-                loan.principalAmount * (loan.interestRate / 100)
-            );
+          <div className="space-y-3">
+            {activeAssignedLoans.map((loan, idx) => {
+              const customer = assignedCustomers.find((c) => c.id === loan.customerId);
+              if (!customer) return null;
 
-            return (
-              <div
-                key={loan.id}
-                className={`glass-card rounded-2xl p-4.5 border transition-all ${
-                  isOverdue
-                    ? 'border-rose-500/40 bg-rose-950/20'
-                    : 'border-slate-800 hover:border-emerald-500/40'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={customer.photoUrl}
-                      alt={customer.name}
-                      className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-700 shrink-0"
-                    />
+              return (
+                <div
+                  key={loan.id}
+                  className="p-3.5 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/30">
+                      {idx + 1}
+                    </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm text-white">{customer.name}</h4>
-                        <span
-                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                            isOverdue
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                              : 'bg-emerald-500/20 text-emerald-300'
-                          }`}
-                        >
-                          {isOverdue ? `${loan.daysOverdue}D OVERDUE` : `${loan.loanType}`}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                        <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
-                        <span className="truncate max-w-[200px] sm:max-w-xs">{customer.address}</span>
-                      </div>
-                      <div className="text-[11px] font-mono text-slate-400 mt-1">
-                        Loan: <span className="text-emerald-400">{loan.loanCode}</span> • Prin Bal: ₹{loan.principalOutstanding.toLocaleString()}
-                        {loan.penaltyOutstanding > 0 && (
-                          <span className="text-rose-400 font-bold ml-1.5">
-                            (Pen: ₹{loan.penaltyOutstanding})
-                          </span>
-                        )}
-                      </div>
+                      <h5 className="text-xs font-bold text-white">{customer.name}</h5>
+                      <p className="text-[11px] text-slate-400 truncate max-w-xs">{customer.address}</p>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <span className="text-[10px] text-slate-400 block">Due Installment</span>
-                    <span className="text-sm font-black text-white">
-                      ₹{installmentAmount.toLocaleString('en-IN')}
-                    </span>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${customer.latitude},${customer.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold shadow-sm transition shrink-0"
+                  >
+                    <Navigation className="w-3 h-3" />
+                    <span>Navigate</span>
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ASSIGNED QUEUE TAB */}
+      {mobileTab === 'QUEUE' && (
+        <div className="space-y-3">
+          {activeAssignedLoans.length === 0 ? (
+            <div className="glass-card rounded-2xl p-8 text-center text-slate-400 text-xs">
+              No pending collections assigned to you today.
+            </div>
+          ) : (
+            activeAssignedLoans.map((loan) => {
+              const customer = assignedCustomers.find((c) => c.id === loan.customerId);
+              if (!customer) return null;
+
+              const isOverdue = loan.status === 'OVERDUE';
+              const installmentAmount = Math.round(
+                loan.principalAmount / loan.tenureCount +
+                  loan.principalAmount * (loan.interestRate / 100)
+              );
+
+              return (
+                <div
+                  key={loan.id}
+                  className={`glass-card rounded-2xl p-4.5 border transition-all ${
+                    isOverdue
+                      ? 'border-rose-500/40 bg-rose-950/20'
+                      : 'border-slate-800 hover:border-emerald-500/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={customer.photoUrl}
+                        alt={customer.name}
+                        className="w-12 h-12 rounded-xl object-cover ring-2 ring-slate-700 shrink-0"
+                      />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-white">{customer.name}</h4>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              isOverdue
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                : 'bg-emerald-500/20 text-emerald-300'
+                            }`}
+                          >
+                            {isOverdue ? `${loan.daysOverdue}D OVERDUE` : `${loan.loanType}`}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
+                          <span className="truncate max-w-[200px] sm:max-w-xs">{customer.address}</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400 mt-1">
+                          Loan: <span className="text-emerald-400">{loan.loanCode}</span> • Prin Bal: ₹{loan.principalOutstanding.toLocaleString()}
+                          {loan.penaltyOutstanding > 0 && (
+                            <span className="text-rose-400 font-bold ml-1.5">
+                              (Pen: ₹{loan.penaltyOutstanding})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-slate-400 block">Due Installment</span>
+                      <span className="text-sm font-black text-white">
+                        ₹{installmentAmount.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Action Buttons */}
+                  <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                    <a
+                      href={`tel:${customer.mobile}`}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Call Borrower</span>
+                    </a>
+
+                    <button
+                      onClick={() => handleOpenCollectModal(customer, loan)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-extrabold shadow-lg shadow-emerald-500/20 transition"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>Collect Payment &rarr;</span>
+                    </button>
                   </div>
                 </div>
-
-                {/* Card Action Buttons */}
-                <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                  <a
-                    href={`tel:${customer.mobile}`}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
-                  >
-                    <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Call Borrower</span>
-                  </a>
-
-                  <button
-                    onClick={() => handleOpenCollectModal(customer, loan)}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-extrabold shadow-lg shadow-emerald-500/20 transition"
-                  >
-                    <Receipt className="w-3.5 h-3.5" />
-                    <span>Collect Payment &rarr;</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* Quick Collection Modal */}
       {selectedCustomer && selectedLoan && (

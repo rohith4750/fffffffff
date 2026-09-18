@@ -1,0 +1,275 @@
+// Prisma Schema for FinFlow Microfinance ERP
+// Compatible with PostgreSQL, Next.js API Routes, and React Native Clients
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  AGENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum CustomerStatus {
+  NEW
+  ACTIVE
+  BLOCKED
+  CLOSED
+}
+
+enum LoanType {
+  WEEKLY
+  MONTHLY
+}
+
+enum LoanStatus {
+  PENDING
+  APPROVED
+  DISBURSED
+  ACTIVE
+  OVERDUE
+  CLOSED
+}
+
+enum PenaltyType {
+  DAILY_FIXED
+  MONTHLY_PERCENTAGE
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+}
+
+enum DocumentType {
+  AADHAAR_FRONT
+  AADHAAR_BACK
+  PAN_CARD
+  PHOTO
+  AGREEMENT
+  OTHER
+}
+
+model User {
+  id                    String         @id @default(cuid())
+  userCode              String         @unique // e.g. USR-AGT-01
+  name                  String
+  mobile                String         @unique
+  passwordHash          String?
+  pinCode               String         // 4-digit numeric PIN for quick mobile agent login
+  role                  Role           @default(AGENT)
+  status                UserStatus     @default(ACTIVE)
+  avatar                String?
+  assignedArea          String?        // e.g. Kukatpally West
+  targetDailyCollection Decimal        @default(25000) @db.Decimal(12, 2)
+  deviceToken           String?        // FCM Token for Push Notifications
+  
+  // Relations
+  assignedCustomers     Customer[]     @relation("AgentCustomers")
+  assignedLoans         Loan[]         @relation("AgentLoans")
+  collections           Collection[]   @relation("AgentCollections")
+  auditLogs             AuditLog[]     @relation("UserAuditLogs")
+  notifications         Notification[] @relation("UserNotifications")
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([mobile])
+  @@index([role, status])
+}
+
+model Customer {
+  id                    String           @id @default(cuid())
+  customerCode          String           @unique // e.g. CUST-1001
+  name                  String
+  mobile                String           @unique
+  address               String
+  occupation            String?
+  aadhaarNumber         String?
+  panNumber             String?
+  photoUrl              String?          // Cloudinary secure URL
+  latitude              Decimal?         @db.Decimal(10, 6)
+  longitude             Decimal?         @db.Decimal(10, 6)
+  
+  // Guarantor Info
+  guarantorName         String?
+  guarantorMobile       String?
+  guarantorAddress      String?
+  guarantorRelationship String?
+
+  assignedAgentId       String
+  assignedAgent         User             @relation("AgentCustomers", fields: [assignedAgentId], references: [id])
+  
+  status                CustomerStatus   @default(ACTIVE)
+  documents             CustomerDocument[]
+  loans                 Loan[]
+  collections           Collection[]
+
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([customerCode])
+  @@index([mobile])
+  @@index([assignedAgentId])
+}
+
+model CustomerDocument {
+  id           String       @id @default(cuid())
+  customerId   String
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type         DocumentType
+  url          String       // Cloudinary URL
+  publicId     String?      // Cloudinary public_id
+  uploadedAt   DateTime     @default(now())
+
+  @@index([customerId])
+}
+
+model Loan {
+  id                    String         @id @default(cuid())
+  loanCode              String         @unique // e.g. LN-W-2026-001
+  customerId            String
+  customer              Customer       @relation(fields: [customerId], references: [id])
+  assignedAgentId       String
+  assignedAgent         User           @relation("AgentLoans", fields: [assignedAgentId], references: [id])
+  
+  loanType              LoanType
+  principalAmount       Decimal        @db.Decimal(12, 2)
+  interestRate          Decimal        @db.Decimal(5, 2) // % per week or % per month
+  totalInterestExpected Decimal        @db.Decimal(12, 2)
+  totalAmountExpected   Decimal        @db.Decimal(12, 2)
+  tenureCount           Int            // number of weeks or months
+  
+  disbursedDate         DateTime?
+  startDate             DateTime       @default(now())
+  dueDate               DateTime
+  status                LoanStatus     @default(PENDING)
+
+  // Balances
+  principalOutstanding  Decimal        @db.Decimal(12, 2)
+  interestOutstanding   Decimal        @db.Decimal(12, 2)
+  penaltyOutstanding    Decimal        @default(0) @db.Decimal(12, 2)
+  totalCollected        Decimal        @default(0) @db.Decimal(12, 2)
+
+  // Penalty Policy
+  penaltyType           PenaltyType    @default(DAILY_FIXED)
+  penaltyRateOrAmount   Decimal        @default(50) @db.Decimal(10, 2)
+  daysOverdue           Int            @default(0)
+
+  schedules             ScheduleItem[]
+  collections           Collection[]
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([customerId])
+  @@index([assignedAgentId])
+  @@index([status])
+}
+
+model ScheduleItem {
+  id                 String     @id @default(cuid())
+  loanId             String
+  loan               Loan       @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  installmentNumber  Int
+  dueDate            DateTime
+  expectedPrincipal  Decimal    @db.Decimal(12, 2)
+  expectedInterest   Decimal    @db.Decimal(12, 2)
+  totalDue           Decimal    @db.Decimal(12, 2)
+  paidAmount         Decimal    @default(0) @db.Decimal(12, 2)
+  status             String     @default("PENDING") // PENDING, PAID, PARTIAL, OVERDUE
+  paidDate           DateTime?
+
+  @@index([loanId])
+}
+
+model Collection {
+  id                 String        @id @default(cuid())
+  receiptNumber      String        @unique // e.g. REC-2026-0001
+  loanId             String
+  loan               Loan          @relation(fields: [loanId], references: [id])
+  customerId         String
+  customer           Customer      @relation(fields: [customerId], references: [id])
+  agentId            String
+  agent              User          @relation("AgentCollections", fields: [agentId], references: [id])
+  
+  amount             Decimal       @db.Decimal(12, 2)
+  paymentMethod      PaymentMethod @default(CASH)
+  
+  // 3-Tier Allocation (Penalty -> Interest -> Principal)
+  penaltyPaid        Decimal       @default(0) @db.Decimal(12, 2)
+  interestPaid       Decimal       @default(0) @db.Decimal(12, 2)
+  principalPaid      Decimal       @default(0) @db.Decimal(12, 2)
+  
+  // GPS Location & Verification
+  latitude           Decimal       @db.Decimal(10, 6)
+  longitude          Decimal       @db.Decimal(10, 6)
+  accuracyMeters     Int?          @default(8)
+  locationAddress    String?
+  deviceInfo         String?
+  remarks            String?
+  proofImageUrl      String?       // Cloudinary image URL of cash receipt / signed proof
+  
+  collectedAt        DateTime      @default(now())
+
+  @@index([loanId])
+  @@index([agentId])
+  @@index([customerId])
+  @@index([receiptNumber])
+}
+
+model LedgerEntry {
+  id              String   @id @default(cuid())
+  transactionCode String   @unique // e.g. TX-DISB-001 or TX-COL-001
+  date            DateTime @default(now())
+  type            String   // DISBURSEMENT, COLLECTION_PRINCIPAL, COLLECTION_INTEREST, COLLECTION_PENALTY
+  account         String   // Account name
+  debit           Decimal  @default(0) @db.Decimal(12, 2)
+  credit          Decimal  @default(0) @db.Decimal(12, 2)
+  referenceId     String   // loanId or collectionId
+  description     String
+
+  @@index([account])
+  @@index([type])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("UserAuditLogs", fields: [userId], references: [id])
+  userName  String
+  action    String
+  module    String   // CUSTOMERS, LOANS, COLLECTIONS, AGENTS, REPORTS, SYSTEM
+  details   String
+  timestamp DateTime @default(now())
+  device    String?
+  ipAddress String?
+
+  @@index([userId])
+  @@index([module])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // DUE_SOON, OVERDUE, COLLECTION_SUCCESS, TARGET_REACHED, SYSTEM
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
