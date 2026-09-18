@@ -30,6 +30,16 @@ import {
   isLoanClosable,
 } from '../services/financeEngine';
 import { getCloudinaryConfig, saveCloudinaryConfig } from '../services/cloudinaryService';
+import {
+  apiCreateAgent,
+  apiCreateCustomer,
+  apiFetchAgents,
+  apiFetchCustomers,
+  apiPinLogin,
+  apiRecordCollection,
+  apiResetAgentPin,
+  checkApiHealth,
+} from '../services/apiService';
 import { format } from 'date-fns';
 
 interface FinanceContextType {
@@ -39,6 +49,8 @@ interface FinanceContextType {
   setCurrentUser: (user: User) => void;
   allUsers: User[];
   agents: User[];
+  isApiConnected: boolean;
+  refreshBackendData: () => Promise<void>;
 
   // Agent Management (Admin Controls)
   createAgent: (data: {
@@ -48,10 +60,10 @@ interface FinanceContextType {
     assignedArea?: string;
     targetDailyCollection?: number;
     avatar?: string;
-  }) => User;
+  }) => Promise<User>;
   updateAgent: (id: string, updates: Partial<User>) => void;
-  resetAgentPin: (id: string, newPin: string) => void;
-  verifyAgentPin: (pin: string) => User | null;
+  resetAgentPin: (id: string, newPin: string) => Promise<void>;
+  verifyAgentPin: (pin: string) => Promise<User | null>;
 
   // Customers
   customers: Customer[];
@@ -117,6 +129,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
   const [currentUser, setCurrentUser] = useState<User>(() => users[0] || SEED_USERS[0]);
+  const [isApiConnected, setIsApiConnected] = useState<boolean>(false);
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('finflow_customers');
@@ -191,6 +204,34 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('finflow_audit', JSON.stringify(auditLogs));
   }, [auditLogs]);
 
+  // Initial Backend Health Check & Hydration
+  const refreshBackendData = async () => {
+    const healthy = await checkApiHealth();
+    setIsApiConnected(healthy);
+
+    if (healthy) {
+      const apiCusts = await apiFetchCustomers();
+      if (apiCusts && apiCusts.length > 0) setCustomers(apiCusts);
+
+      const apiAgts = await apiFetchAgents();
+      if (apiAgts && apiAgts.length > 0) {
+        setUsers((prev) => {
+          const admin = prev.find((u) => u.role === 'ADMIN');
+          return admin ? [admin, ...apiAgts] : apiAgts;
+        });
+      }
+    }
+  };
+
+  useEffect(() => {
+    refreshBackendData();
+    const interval = setInterval(async () => {
+      const healthy = await checkApiHealth();
+      setIsApiConnected(healthy);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Keep current user updated when switching roles
   useEffect(() => {
     if (currentRole === 'ADMIN') {
@@ -244,14 +285,14 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Agent Management
-  const createAgent = (data: {
+  const createAgent = async (data: {
     name: string;
     mobile: string;
     pinCode: string;
     assignedArea?: string;
     targetDailyCollection?: number;
     avatar?: string;
-  }): User => {
+  }): Promise<User> => {
     const agentSeq = users.filter((u) => u.role === 'AGENT').length + 1;
     const newAgent: User = {
       id: `USR-AGT-${String(agentSeq).padStart(2, '0')}`,
@@ -266,6 +307,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         data.avatar ||
         'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
     };
+
+    // Call Backend API asynchronously
+    apiCreateAgent(data).catch(() => {});
 
     setUsers((prev) => [...prev, newAgent]);
     logAction(
@@ -283,14 +327,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     logAction('AGENT_UPDATED', 'AGENTS', `Updated agent profile for ${id}`);
   };
 
-  const resetAgentPin = (id: string, newPin: string) => {
+  const resetAgentPin = async (id: string, newPin: string) => {
+    apiResetAgentPin(id, newPin).catch(() => {});
     setUsers((prev) =>
       prev.map((u) => (u.id === id ? { ...u, pinCode: newPin } : u))
     );
     logAction('AGENT_PIN_RESET', 'AGENTS', `Reset quick login PIN for agent ID: ${id}`);
   };
 
-  const verifyAgentPin = (pin: string): User | null => {
+  const verifyAgentPin = async (pin: string): Promise<User | null> => {
+    // Try backend API PIN verification
+    const apiResult = await apiPinLogin(pin);
+    if (apiResult) return apiResult;
+
+    // Fallback to local store verification
     const found = users.find((u) => u.role === 'AGENT' && u.pinCode === pin && u.status === 'ACTIVE');
     return found || null;
   };
@@ -307,6 +357,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       documents: [],
       createdAt: new Date().toISOString(),
     };
+
+    // Call Backend API
+    apiCreateCustomer(data).catch(() => {});
 
     setCustomers((prev) => [newCust, ...prev]);
     logAction('CUSTOMER_CREATED', 'CUSTOMERS', `Created new customer: ${newCust.name} (${newCust.customerCode})`);
@@ -436,7 +489,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
     );
 
-    // Ledger Entry for Disbursement
     const newTx: LedgerEntry = {
       id: `LED-${Date.now().toString().slice(-5)}`,
       transactionCode: `TX-DISB-${Date.now().toString().slice(-4)}`,
@@ -510,6 +562,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       proofImageUrl: data.proofImageUrl,
       collectedAt: new Date().toISOString(),
     };
+
+    // Asynchronously submit to Backend API
+    apiRecordCollection({
+      loanId: loan.id,
+      customerId: loan.customerId,
+      agentId: currentUser.id,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      accuracyMeters: data.accuracyMeters,
+      locationAddress: data.locationAddress,
+      deviceInfo: data.deviceInfo,
+      remarks: data.remarks,
+      proofImageUrl: data.proofImageUrl,
+    }).catch(() => {});
 
     // Update Loan State
     setLoans((prev) =>
@@ -616,6 +684,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCurrentUser,
         allUsers: users,
         agents,
+        isApiConnected,
+        refreshBackendData,
         createAgent,
         updateAgent,
         resetAgentPin,

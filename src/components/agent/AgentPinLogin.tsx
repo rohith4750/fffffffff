@@ -31,8 +31,8 @@ export const AgentPinLogin: React.FC<Props> = ({ onSuccess }) => {
     setErrorMsg(null);
   };
 
-  const validatePin = (inputPin: string) => {
-    const verified = verifyAgentPin(inputPin);
+  const validatePin = async (inputPin: string) => {
+    const verified = await verifyAgentPin(inputPin);
     if (verified) {
       setIsSuccess(true);
       setCurrentUser(verified);

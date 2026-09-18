@@ -8,6 +8,7 @@ import {
   Smartphone,
   UserCheck,
   Zap,
+  Server,
 } from 'lucide-react';
 import { CloudinarySettingsModal } from '../common/CloudinarySettingsModal';
 
@@ -22,6 +23,8 @@ export const Navbar: React.FC = () => {
     markNotificationAsRead,
     resetToSampleData,
     cloudinaryConfig,
+    isApiConnected,
+    refreshBackendData,
   } = useFinance();
 
   const [showCloudinaryModal, setShowCloudinaryModal] = useState(false);
@@ -52,6 +55,25 @@ export const Navbar: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Real-time API Connection Pill */}
+          <button
+            onClick={() => refreshBackendData()}
+            title={isApiConnected ? 'Connected to PostgreSQL REST API' : 'Click to reconnect to backend'}
+            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
+              isApiConnected
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>{isApiConnected ? 'REST API Online' : 'Hybrid Local Mode'}</span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isApiConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              }`}
+            ></span>
+          </button>
+
           {/* Role Switcher Pill */}
           <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700/60 shadow-inner">
             <button
